@@ -1,0 +1,204 @@
+---
+title: "Loan Approval Prediction"
+author: "Kashav, Brian and Jacob"
+date: "5/10/2022"
+output:
+  html_document: 
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Importing the data
+```{r}
+df <- read.csv('A:/LoanApproval/loan.csv', header=TRUE, na.strings = c("", "NA"))
+head(df)
+```
+Here we can see the columns that we have along with the headers which are self-explanatory.
+
+Changing the 3+ dependents to 3 for convinience.
+```{r}
+library(plyr)
+df$Dependents <- revalue(df$Dependents, c("3+"="3"))
+df$Loan_Status <- revalue(df$Loan_Status, c("Y"="Yes"))
+df$Loan_Status <- revalue(df$Loan_Status, c("N"="No"))
+df$Loan_Status <- as.factor(df$Loan_Status)
+```
+
+### Looking at our data in depth
+```{r}
+head(df)
+summary(df)
+```
+
+
+### Splitting data into test and train sets
+```{r}
+set.seed(100)
+N = nrow(df)
+
+#making fake ids for the rows
+loan_id = sample(nrow(df), N*0.7)
+
+#making a training set
+data.train_1 = df[loan_id, ]
+
+#making a test set
+data.test_1 = df[-loan_id, ]
+```
+
+### Defining the $x = ApplicantIncome$ and $y = LoanStatus$ variables:
+
+```{r}
+y = data.train_1$Loan_Status
+x = data.train_1$ApplicantIncome
+
+data.train_2 = data.frame(y,x)
+head(data.train_2)
+```
+### Build the logistic regression model using `glm()` function:
+
+```{r}
+logit.model.train_1 = glm(y ~ x, data = data.train_2, family = binomial(link = "logit"))
+summary(logit.model.train_1)
+```
+
+### Extracting the logistic model using `equatiomatic` package:
+
+```{r}
+#install.packages("equatiomatic")
+library(equatiomatic)
+
+extract_eq(logit.model.train_1, data = data.train_2, coef_digits = 4, use_coefs = TRUE)
+```
+
+
+### Calculating the model accuracy:
+
+```{r}
+actual.values = data.train_2$y
+predicted.values = ifelse(predict(logit.model.train_1 ) > 0, "Yes", "No")
+
+## predicting probabilities using predict() function
+predcited.probs = predict(logit.model.train_1, type = "response")
+head(predcited.probs)
+
+# predicting classification based on probs.
+
+predicted.categories.probs = ifelse(predcited.probs > 0.5, "Yes", "No")
+head(predicted.categories.probs)
+
+## create a error calculation function manually
+error_for_train.model = function(actual, predicted){
+  mean(actual != predicted)
+}
+error_for_train.model(actual.values, predicted.categories.probs)
+accuracy = 1- error_for_train.model(actual.values, predicted.categories.probs)
+accuracy
+```
+
+### Graphing the logistic regression model:
+
+```{r}
+# install.packages("ggplot2")
+library(ggplot2)
+
+
+
+logit.graph_1 = ggplot(data = data.train_2, aes(x = x, y = as.numeric(y) - 1)) + 
+  geom_point(alpha = 0.5) + 
+  stat_smooth(method = "glm", se = TRUE,method.args = list(family = binomial), fullrange = TRUE  )
+
+## creating decision boundary:
+decision.boundary = 0.794/0.0000008541
+decision.boundary
+
+logit.graph_1 + geom_vline(xintercept = decision.boundary, col = "red", lty = 3)
+```
+
+# Multiple Logistic Regression:
+
+```{r}
+set.seed(100)
+N = nrow(df)
+
+
+# making fake ids for the rows (obeservations)
+df_id = sample(nrow(df), N*0.50 ) # splitting 50/50
+# head(default_id,15)
+# making a training data set
+data.train_1 = df[df_id, ]
+#nrow(data.train_1)
+
+data.test_1 = df[-df_id, ]
+#nrow(data.test_1)
+```
+
+## Building the Multiple Logistic Model:
+
+### Creating a data frame:
+
+```{r}
+Y = data.train_1$Loan_Status
+X1 = data.train_1$ApplicantIncome
+X2 = data.train_1$CoapplicantIncome
+X3 = data.train_1$LoanAmount
+
+default_training_dataFrame = data.frame(Y, X1, X2, X3)
+```
+
+### Making a model with `glm()` function of `R`:
+
+```{r}
+multiple_logit_model_1 = glm(Y ~ X1 + X2 + X3, data = default_training_dataFrame, family = binomial(link = "logit"))
+summary(multiple_logit_model_1)
+```
+
+3). Extracting the Multiple logistic regression model equation:
+
+```{r}
+# install.packages("equatiomatic")
+library(equatiomatic)
+
+# the following fuction will extract the population logit model
+extract_eq(multiple_logit_model_1)
+
+# 
+extract_eq(multiple_logit_model_1, data = default_training_dataFrame, use_coefs = TRUE, coef_digits = 4)
+```
+
+4). Calculating model **accuracy** using **confusion matrix**:
+
+```{r}
+# install.packages("caret")
+library(caret)
+head(predict(multiple_logit_model_1))
+
+mult_logit_predicted = ifelse(predict(multiple_logit_model_1) < 0.9, "No" , "Yes" )
+head(mult_logit_predicted)
+
+training_table = table(predicted = mult_logit_predicted, actual=Y)
+training_table
+
+# using confusion matrix function of caret package:
+accuracy_table = confusionMatrix(training_table, positive = "Yes")
+accuracy_table
+```
+
+5). **ROC** for Multiple Logistic Regression:
+
+```{r}
+#install.packages("pROC")
+library(pROC)
+multiple_logit_model_1
+
+# test probability calculation
+test_prob = predict(multiple_logit_model_1,
+                    newdata = data.test_1,
+                    type = 'response')
+head(test_prob)
+roc(data.train_1$default ~ test_prob, plot = TRUE, 
+    print.auc = TRUE, col = 'magenta')
+```
